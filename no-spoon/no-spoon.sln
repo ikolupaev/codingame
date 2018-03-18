@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2013
+VisualStudioVersion = 12.0.31101.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "no-spoon", "no-spoon\no-spoon.csproj", "{974054FB-796F-4A84-AFD6-A7EEF47BC126}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "no-spoon2", "no-spoon2\no-spoon2.csproj", "{395A6375-AEBE-4C0A-A896-685180A0DCB9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{974054FB-796F-4A84-AFD6-A7EEF47BC126}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{974054FB-796F-4A84-AFD6-A7EEF47BC126}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{974054FB-796F-4A84-AFD6-A7EEF47BC126}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{974054FB-796F-4A84-AFD6-A7EEF47BC126}.Release|Any CPU.Build.0 = Release|Any CPU
+		{395A6375-AEBE-4C0A-A896-685180A0DCB9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{395A6375-AEBE-4C0A-A896-685180A0DCB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{395A6375-AEBE-4C0A-A896-685180A0DCB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{395A6375-AEBE-4C0A-A896-685180A0DCB9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
