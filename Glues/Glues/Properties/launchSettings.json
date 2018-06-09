@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Glues": {
+      "commandName": "Project",
+      "commandLineArgs": "< C:\\Users\\ikolu\\sources\\Glues\\Glues\\03.txt"
+    }
+  }
+}
