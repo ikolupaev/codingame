@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+  </PropertyGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="dotnet C:\Users\ikolu\sources\codingame\all21\all21\out\all21.dll C:\Users\ikolu\sources\codingame\Kutulu\Player\ C:\Users\ikolu\sources\codingame\Kutulu\out\program.cs&#xD;&#xA;" />
+  </Target>
+
+  <ItemGroup>
+    <Compile Remove="out\**" />
+    <EmbeddedResource Remove="out\**" />
+    <None Remove="out\**" />
+  </ItemGroup>
+
+</Project>
