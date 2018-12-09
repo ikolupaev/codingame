@@ -53,9 +53,14 @@ public class MyPath
         Visited.Pop();
     }
 
+    public IEnumerable<string> GetPathDirecitons()
+    {
+        return Path.Reverse().Take(20).Select(x => x.ToString().ToUpperInvariant());
+    }
+
     public override string ToString()
     {
-        return string.Join(" ", Path.Reverse().Take(20).Select(x => x.ToString().ToUpperInvariant()));
+        return string.Join(" ",  GetPathDirecitons());
     }
 }
 
@@ -528,30 +533,57 @@ public class XmaxRush
 
         while (true)
         {
+#if DEBUG
+            board.Deserialize("AQoNBQcFBw0HBwkKBgoJDQULDQcMCwMMDQYKDwcFCg8GDQkGCgYJBwYKDg4JCQYNAwkCAAAAAQAAAAEAAAAKAAAAAAQAAAAJAAAACgoAAAAGAAAAU0hJRUxEBAAAAAQAAAABAAAABgAAAFNDUk9MTAQAAAAFAAAAAQAAAAUAAABBUlJPVwIAAAAGAAAAAQAAAAQAAABCT09LAAAAAAAAAAAAAAAABAAAAEJPT0sBAAAABAAAAAEAAAAEAAAARklTSAAAAAACAAAAAQAAAAMAAABLRVkEAAAABgAAAAEAAAAEAAAATUFTSwYAAAADAAAAAQAAAAUAAABDQU5EWQMAAAACAAAAAQAAAAUAAABTV09SRAAAAAADAAAAAQAAAAQAAAAEAAAAQk9PSwAAAAAFAAAAU1dPUkQBAAAABQAAAEFSUk9XAQAAAAMAAABLRVkBAAAA");
+#else
             board.Load();
-
-            Console.Error.WriteLine(board.Serialize());
-            //board.Deserialize("AAkMCwoHDgcGDQsDCgkFDgMKCg8NBg0KCgcJCQYHDQcNBwMGCgoKCQwMCgwKDwMHDQoBAAAAAwAAAAEAAAAGAwAAAAAAAAACAAAADQMAAAAEAAAAQ0FORQYAAAADAAAAAQAAAAQAAABNQVNL//////////8AAAAABQAAAEFSUk9XBQAAAAUAAAABAAAAAwAAAAQAAABNQVNLAAAAAAQAAABDQU5FAQAAAAUAAABBUlJPVwEAAAA=");
-
             timer.Restart();
+            Console.Error.WriteLine(board.Serialize());
+#endif
             ticks = 0;
 
             if (board.MoveTurn)
             {
-                var found = false;
+                var items = board.GetBoardQuestsItems(0).ToArray();
 
-                foreach (var target in board.GetBoardQuestsItems(0))
+                if (items.Length == 0)
                 {
-                    var path = FindPath(board, board.Players[0].Vector, target.Vector);
-                    if (path.ToGo == 0)
-                    {
-                        found = true;
-                        Console.WriteLine("MOVE " + path.ToString()); // PUSH <id> <direction> | MOVE <direction> | PASS
-                        break;
-                    }
+                    D($"no board items: {items.Length}, numPlayerCards: {board.Players[0].NumPlayerCards} items: {board.Items.Length}, quests: {board.Quests.Length}");
+                    Console.WriteLine("PASS");
+                    continue;
                 }
 
-                if (!found) Console.WriteLine("PASS");
+                var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
+                var adjItems = items
+                    .Where(x => adjMap.ContainsKey(x.Vector))
+                    .OrderBy(x=> adjMap[x.Vector]).ToArray();
+
+                D("found adj items: ", adjItems.Length);
+
+                List<Vector> targets = new List<Vector>();
+
+                if (adjItems.Any())
+                {
+                    targets.AddRange(adjItems.Select(x => x.Vector));
+                }
+
+                if (targets.Count == 0)
+                {
+                    D($"no targets");
+                    Console.WriteLine("PASS");
+                    continue;
+                }
+
+                var startCell = board.Players[0].Vector;
+                var path = new List<string>();
+                foreach (var t in targets)
+                {
+                    var p = FindPath(board, startCell, t);
+                    path.AddRange(p.GetPathDirecitons());
+                    startCell = t;
+                }
+
+                Console.WriteLine("MOVE " + string.Join( " ", path.Take(20))); // PUSH <id> <direction> | MOVE <direction> | PASS
             }
             else
             {
@@ -597,7 +629,7 @@ public class XmaxRush
     private static void AssertTimeout()
     {
         ticks++;
-        if (timer.ElapsedMilliseconds > 48)
+        if (timer.ElapsedMilliseconds > 45)
         {
             Console.Error.WriteLine($"timeout {ticks}, {timer.ElapsedMilliseconds}");
             throw new TimeoutException();
@@ -638,8 +670,15 @@ public class XmaxRush
 
     private static int CalcScore(Board board)
     {
-        var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
         var items = board.GetBoardQuestsItems(0).ToArray();
+
+        if (items.Length == 0)
+        {
+            //D($"no board items: {items.Length}, numPlayerCards: {board.Players[0].NumPlayerCards} items: {board.Items.Length}, quests: {board.Quests.Length}");
+            return 0;
+        }
+
+        var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
         var adjItems = items.Count(x => adjMap.ContainsKey(x.Vector));
 
         if (adjItems > 0) return adjItems * 1000;
