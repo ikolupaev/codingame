@@ -168,6 +168,16 @@ public struct Vector : IEquatable<Vector>
                 throw new ArgumentException();
         }
     }
+
+    public bool IsValid()
+    {
+        return (X >= 0 && X < 7 && Y >= 0 && Y < 7);
+    }
+
+    public int GetDistance(Vector x)
+    {
+        return Math.Abs(x.X - X) + Math.Abs(x.Y - Y);
+    }
 }
 
 public class Player
@@ -278,6 +288,7 @@ public class Board
             if (f != null) yield return f;
         }
     }
+
     public void Push(Push push)
     {
         switch (push.Direction)
@@ -462,6 +473,47 @@ public class Board
             }
         }
     }
+
+    internal IEnumerable<Vector> GetAdjacentCells(Vector cell)
+    {
+        foreach (var dir in Cells[cell.X, cell.Y].GetDirections())
+        {
+            var v = cell.Move(dir);
+
+            if (!v.IsValid()) continue;
+            if (!Cells[v.X, v.Y].Has(dir.Opposite())) continue;
+
+            yield return v;
+        }
+    }
+
+    public Dictionary<Vector, int> CreateAdjacentMap(Vector start)
+    {
+        var toVisit = new Queue<Vector>();
+        var distanceMap = new Dictionary<Vector, int>();
+
+        toVisit.Enqueue(start);
+        distanceMap[start] = 0;
+
+        while (toVisit.Any())
+        {
+            var v = toVisit.Dequeue();
+            var dist = distanceMap[v] + 1;
+            foreach (var adj in GetAdjacentCells(v))
+            {
+                if (distanceMap.TryGetValue(adj, out int adjDist))
+                {
+                    if (adjDist > dist) distanceMap[adj] = dist;
+                }
+                else
+                {
+                    toVisit.Enqueue(adj);
+                    distanceMap[adj] = dist;
+                }
+            }
+        }
+        return distanceMap;
+    }
 }
 
 public class XmaxRush
@@ -490,7 +542,7 @@ public class XmaxRush
 
                 foreach (var target in board.GetBoardQuestsItems(0))
                 {
-                    var path = FindPath(board, target.Vector);
+                    var path = FindPath(board, board.Players[0].Vector, target.Vector);
                     if (path.ToGo == 0)
                     {
                         found = true;
@@ -509,9 +561,9 @@ public class XmaxRush
         }
     }
 
-    public static MyPath FindPath(Board board, Vector target)
+    public static MyPath FindPath(Board board, Vector start, Vector target)
     {
-        var path = new MyPath(board.Players[0].Vector, target);
+        var path = new MyPath(start, target);
         FindRestOfPath(board, path);
 
         return path;
@@ -554,12 +606,6 @@ public class XmaxRush
 
     private static Push FindBestPush(Board board)
     {
-        var quest = board.Quests.First(x => x.QuestPlayerId == 0);
-        var target = board.Items.First(x => x.PlayerId == 0 && x.Name == quest.Name);
-
-        var dx = Math.Sign(target.Vector.X - board.Players[0].Vector.X);
-        var dy = Math.Sign(target.Vector.Y - board.Players[0].Vector.Y);
-
         var maxScore = int.MinValue;
         Push maxPush = null;
 
@@ -592,19 +638,13 @@ public class XmaxRush
 
     private static int CalcScore(Board board)
     {
-        var maxScore = int.MinValue;
+        var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
+        var items = board.GetBoardQuestsItems(0).ToArray();
+        var adjItems = items.Count(x => adjMap.ContainsKey(x.Vector));
 
-        foreach (var target in board.GetBoardQuestsItems(0))
-        {
-            var path = FindPath(board, target.Vector);
-            if (path.ToGo == 0)
-            {
-                return 1000 + path.Passed - path.ToGo;
-            }
-            maxScore = Math.Max(maxScore, path.Passed - path.ToGo);
-        }
-
-        return maxScore;
+        if (adjItems > 0) return adjItems * 1000;
+        var minDist = adjMap.Keys.Min(x => items.Min(j => j.Vector.GetDistance(x)));
+        return minDist * -1;
     }
 
     public static void D(params object[] p)
