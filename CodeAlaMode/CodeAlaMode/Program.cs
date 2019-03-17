@@ -1,35 +1,183 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.IO;
 using System.Text;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 public class Game
 {
-    public Player[] Players = new Player[2];
-    public Table Dishwasher;
-    public Table Window;
-    public Table Blueberry;
-    public Table Strawberry;
-    public Table IceCream;
-    public Table Dough;
-    public Table ChoppingBoard;
-    public Table Oven;
-    public List<Table> Tables = new List<Table>();
+    public Game(Game g)
+    {
+        Players = new[]
+        {
+            new Player( g.Players[0] ),
+            new Player( g.Players[1] )
+        };
+
+        Tables = g.Tables.Select(x => new Table(x)).ToList();
+        OvenContents = g.OvenContents;
+        OvenTimer = g.OvenTimer;
+        Orders = g.Orders.Select(x => new Order(x.Item, x.Award)).ToArray();
+        CurrentPlayerIndex = g.CurrentPlayerIndex;
+        Score = g.Score;
+    }
+
+    public Game()
+    {
+        Players = new Player[2];
+        Tables = new List<Table>(7 * 11);
+        Orders = new Order[3];
+    }
+
+    public Item OvenContents;
+    public int OvenTimer;
+    public int CurrentPlayerIndex;
+    public int Score;
+
+    public List<Table> Tables;
+    public Order[] Orders;
+    public Player[] Players;
+
+    public Player Me => Players[0];
+
+    public static int[][] TablesMap = new[]
+    {
+        new[] {1,1,1,1,1,1,1,1,1,1,1},
+        new[] {1,0,0,0,0,0,0,0,0,0,1},
+        new[] {1,0,1,1,1,1,0,1,1,0,1},
+        new[] {1,0,1,0,0,1,0,0,1,0,1},
+        new[] {1,0,1,1,0,1,1,1,1,0,1},
+        new[] {1,0,0,0,0,0,0,0,0,0,1},
+        new[] {1,1,1,1,1,1,1,1,1,1,1}
+    };
+
+    public Game(string base64)
+    {
+        using (var stream = new MemoryStream(Convert.FromBase64String(base64)))
+        {
+            using (var reader = new BinaryReader(stream))
+            {
+                OvenContents = (Item)reader.ReadInt32();
+                OvenTimer = reader.ReadInt32();
+                CurrentPlayerIndex = reader.ReadInt32();
+                Score = reader.ReadInt32();
+
+                var tablesCount = reader.ReadInt32();
+                Tables = new List<Table>(tablesCount);
+                for (int i = 0; i < tablesCount; i++)
+                {
+                    Tables.Add(Table.Load(reader));
+                }
+
+                var ordersCount = reader.ReadInt32();
+                Orders = new Order[ordersCount];
+                for (int i = 0; i < ordersCount; i++)
+                {
+                    Orders[i] = Order.Load(reader);
+                }
+
+                Players = new Player[2];
+                Players[0] = Player.Load(reader);
+                Players[1] = Player.Load(reader);
+            }
+        }
+    }
+
+    public override string ToString()
+    {
+        using (var stream = new MemoryStream())
+        {
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write((int)OvenContents);
+                writer.Write(OvenTimer);
+                writer.Write(CurrentPlayerIndex);
+                writer.Write(Score);
+
+                writer.Write(Tables.Count);
+                foreach (var t in Tables)
+                {
+                    t.Serialize(writer);
+                }
+
+                writer.Write(Orders.Length);
+                foreach (var o in Orders)
+                {
+                    o.Serialize(writer);
+                }
+
+                Players[0].Serialize(writer);
+                Players[1].Serialize(writer);
+            }
+
+            return Convert.ToBase64String(stream.ToArray());
+        }
+    }
 }
 
 public class Table
 {
+    public Table(Table t)
+    {
+        Position = new Position(t.Position);
+        TableFunction = t.TableFunction;
+        Item = t.Item;
+    }
+
+    public Table()
+    {
+    }
+
     public Position Position;
-    public bool HasFunction;
+    public TableFunction TableFunction;
     public Item Item;
+
+    internal void Serialize(BinaryWriter writer)
+    {
+        Position.Serialize(writer);
+        writer.Write((((int)TableFunction) << 16) | (int)Item);
+    }
+
+    internal static Table Load(BinaryReader reader)
+    {
+        var pos = Position.Load(reader);
+        var p = reader.ReadInt32();
+
+        return new Table
+        {
+            Position = pos,
+            TableFunction = (TableFunction)(p >> 16),
+            Item = (Item)(p & 0xffff)
+        };
+    }
 }
 
 public class Order
 {
+    public Order(Item item, int award)
+    {
+        Item = item;
+        Award = award;
+    }
+
     public Item Item;
     public int Award;
+
+    internal void Serialize(BinaryWriter writer)
+    {
+        writer.Write((int)Item);
+        writer.Write(Award);
+    }
+
+    internal static Order Load(BinaryReader reader)
+    {
+        var item = (Item)reader.ReadInt32();
+        var award = reader.ReadInt32();
+
+        return new Order(item, award);
+    }
 }
 
 [Flags]
@@ -46,32 +194,71 @@ public enum Item
     RAW_TART = 128,
     TART = 256,
     CHOPPED_DOUGH = 512,
+
+    DESSERT = ICE_CREAM | BLUEBERRIES | CHOPPED_STRAWBERRIES | CROISSANT | TART
+}
+
+public enum TableFunction
+{
+    Dishwasher = 1,
+    Window = 2,
+    Blueberry = 3,
+    Strawberry = 4,
+    IceCream = 5,
+    Dough = 6,
+    ChoppingBoard = 7,
+    Oven = 8
 }
 
 public class Player
 {
     public Position Position;
     public Item Item;
+
+    public Player(Player p) : this(new Position(p.Position), p.Item) { }
+
     public Player(Position position, Item item)
     {
         Position = position;
         Item = item;
     }
+
     public void Update(Position position, Item item)
     {
         Position = position;
         Item = item;
     }
+
+    public void Serialize(BinaryWriter w)
+    {
+        Position.Serialize(w);
+        w.Write((Int16)Item);
+    }
+
+    internal static Player Load(BinaryReader r)
+    {
+        var p = Position.Load(r);
+        var item = (Item)r.ReadInt16();
+
+        return new Player(p, item);
+    }
 }
 
 public class Position
 {
-    public int X, Y;
+    public readonly int X, Y;
+
+    public Position(Position p) : this(p.X, p.Y) { }
 
     public Position(int x, int y)
     {
         X = x;
         Y = y;
+    }
+
+    public bool Equals(Position p)
+    {
+        return p.X == X && p.Y == Y;
     }
 
     public int Manhattan(Position p2) => Math.Abs(X - p2.X) + Math.Abs(Y - p2.Y);
@@ -80,6 +267,51 @@ public class Position
     {
         return X + " " + Y;
     }
+
+    public override int GetHashCode()
+    {
+        return ((X << 4) | Y);
+    }
+
+    public static Position Load(BinaryReader reader)
+    {
+        var xy = reader.ReadByte();
+        return new Position(xy >> 4, xy & 0xf);
+    }
+
+    internal void Serialize(BinaryWriter writer)
+    {
+        writer.Write((byte)((X << 4) | Y));
+    }
+}
+
+public class Move
+{
+    public MoveType MoveType;
+    public Position Position;
+
+    public override string ToString()
+    {
+        return (MoveType == MoveType.Move ? "MOVE " : "USE ") + Position;
+    }
+
+    public override int GetHashCode()
+    {
+        return (Position.X << 5) | (Position.Y << 1) | (int)MoveType;
+    }
+
+    public override bool Equals(object obj)
+    {
+        var t = obj as Move;
+        if (obj == null) return false;
+        return t.GetHashCode() == GetHashCode();
+    }
+}
+
+public enum MoveType
+{
+    Move = 0,
+    Use = 1
 }
 
 public class MainClass
@@ -97,27 +329,30 @@ public class MainClass
             string kitchenLine = ReadLine();
             for (var x = 0; x < kitchenLine.Length; x++)
             {
-                if (kitchenLine[x] == 'W') game.Window = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'D') game.Dishwasher = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'I') game.IceCream = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'B') game.Blueberry = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'S') game.Strawberry = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'H') game.Dough = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'C') game.ChoppingBoard = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == 'O') game.Oven = new Table { Position = new Position(x, i), HasFunction = true };
-                if (kitchenLine[x] == '#') game.Tables.Add(new Table { Position = new Position(x, i) });
+                Table t = null;
+
+                if (kitchenLine[x] == 'W') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Window };
+                else if (kitchenLine[x] == 'D') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Dishwasher };
+                else if (kitchenLine[x] == 'I') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.IceCream };
+                else if (kitchenLine[x] == 'B') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Blueberry };
+                else if (kitchenLine[x] == 'S') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Strawberry };
+                else if (kitchenLine[x] == 'H') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Dough };
+                else if (kitchenLine[x] == 'C') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.ChoppingBoard };
+                else if (kitchenLine[x] == 'O') t = new Table { Position = new Position(x, i), TableFunction = TableFunction.Oven };
+                else if (kitchenLine[x] == '#') t = new Table { Position = new Position(x, i) };
+
+                if (t != null) game.Tables.Add(t);
             }
         }
 
         return game;
     }
 
-    private static void Move(Position p) => Console.WriteLine("MOVE " + p);
+    //private static void Move(Position p, string message) =>
+    //    Console.WriteLine("MOVE " + p + ";" + message);
 
-    private static void Use(Position p, string message)
-    {
-        Console.WriteLine("USE " + p + ";" + message);
-    }
+    //private static void Use(Position p, string message) =>
+    //    Console.WriteLine("USE " + p + ";" + message);
 
     private static string ReadLine()
     {
@@ -128,9 +363,16 @@ public class MainClass
 
     static void Main()
     {
+        var state = "AAAAAAAAAAAAAAAAAAAAAC8AAAAAAAAAABAAAAMAIAAAAAAwAAAAAEAAAAAAUAAAAQBgAAAAAHAAAAAAgAAAAACQAAAAAKAAAAAAAQAAAAChAAAFAAIAAAgAIgAAAAAyAAAAAEIAAAAAUgAAAAByAAAAAIIAAAAAogAAAAADAAAHACMAAAAAUwAAAACDAAAAAKMAAAAABAAAAAAkAAAAADQAAAAAVAAAAABkAAAAAHQAAAAAhAAABgCkAAAAAAUAAAAApQAAAAAGAAAAABYAAAAAJgAAAAA2AAAEAEYAAAAAVgAAAgBmAAAAAHYAAAAAhgAAAACWAAAAAKYAAAAAAwAAAEUAAABSAwAARwEAAAIIAABKAAAAGgQAABEAAJUAAA==";
+        var g = new Game(state);
+
+        var moves = new HashSet<Move>();
+        GetAvailableMoves(g, moves, 4);
+
+        var m = GetBestMove(g);
+
         string[] inputs;
 
-        // ALL CUSTOMERS INPUT: to ignore until Bronze
         int numAllCustomers = int.Parse(ReadLine());
         for (int i = 0; i < numAllCustomers; i++)
         {
@@ -139,20 +381,18 @@ public class MainClass
             int customerAward = int.Parse(inputs[1]); // the number of points awarded for delivering the food
         }
 
-        // KITCHEN INPUT
         var game = ReadGame();
 
         while (true)
         {
             int turnsRemaining = int.Parse(ReadLine());
 
-            // PLAYERS INPUT
             inputs = ReadLine().Split(' ');
             game.Players[0].Update(new Position(int.Parse(inputs[0]), int.Parse(inputs[1])), CreateItem(inputs[2]));
             inputs = ReadLine().Split(' ');
             game.Players[1].Update(new Position(int.Parse(inputs[0]), int.Parse(inputs[1])), CreateItem(inputs[2]));
+            var me = game.Players[0];
 
-            //Clean other tables
             foreach (var t in game.Tables)
             {
                 t.Item = Item.NONE;
@@ -169,125 +409,127 @@ public class MainClass
             }
 
             inputs = ReadLine().Split(' ');
-            var ovenContents = CreateItem(inputs[0]); // ignore until bronze league
-            int ovenTimer = int.Parse(inputs[1]);
+            game.OvenContents = CreateItem(inputs[0]); // ignore until bronze league
+            game.OvenTimer = int.Parse(inputs[1]);
             int numCustomers = int.Parse(ReadLine()); // the number of customers currently waiting for food
 
-            var orders = new Order[numCustomers];
             for (int i = 0; i < numCustomers; i++)
             {
                 inputs = ReadLine().Split(' ');
-                orders[i] = new Order { Item = CreateItem(inputs[0]), Award = int.Parse(inputs[1]) };
+                game.Orders[i] = new Order(CreateItem(inputs[0]), int.Parse(inputs[1]));
             }
 
-            var order = orders.Where(x => (x.Item & Item.TART) == 0).FirstOrDefault();
+            D(game.ToString());
 
-            if (order == null)
+            var move = GetBestMove(game);
+
+            Console.WriteLine(move.ToString());
+        }
+    }
+
+
+    private static Move GetBestMove(Game game)
+    {
+        Move maxMove = null;
+        var maxScore = int.MinValue;
+
+        var moves = new HashSet<Move>();
+        GetAvailableMoves(game, moves, 4);
+        foreach (var move in moves)
+        {
+            var score = CalcScore(game, move, 5);
+            if (maxScore < score)
             {
-                Console.WriteLine("WAIT");
-                continue;
+                maxMove = move;
+                maxScore = score;
             }
+        }
 
-            var me = game.Players[0];
+        return maxMove;
+    }
 
+    private static int CalcScore(Game game, Move move, int level)
+    {
+        if (level == 0)
+        {
+            return CalcScore(game);
+        }
 
-            if (order.Item.Constains(Item.CROISSANT) &&
-                !me.Item.Constains(Item.CROISSANT) &&
-                !game.Tables.Find(Item.CROISSANT).Any() &&
-                ovenContents != Item.DOUGH)
+        var g = new Game(game);
+        var valid = g.ApplyMove(move);
+        if (!valid) return int.MinValue;
+
+        g.CurrentPlayerIndex = 1 - g.CurrentPlayerIndex;
+
+        var maxScore = int.MinValue;
+        var moves = new HashSet<Move>();
+        GetAvailableMoves(game, moves, 4);
+        foreach (var nextMove in moves)
+        {
+            maxScore = Math.Max(maxScore, CalcScore(game, nextMove, level - 1));
+        }
+        return maxScore;
+    }
+
+    private static int CalcScore(Game game)
+    {
+        return game.Score;
+    }
+
+    private static void GetAvailableMoves(Game game, HashSet<Move> moves, int level)
+    {
+        if (level == 0) return;
+
+        if (moves.Count == 0) moves.Add(Move(game.Players[game.CurrentPlayerIndex].Position));
+
+        foreach (var p in game.Players[game.CurrentPlayerIndex].Position.GetAdjustentPositions())
+        {
+            if (game.Players[1 - game.CurrentPlayerIndex].Position.Equals(p)) continue;
+
+            if (Game.TablesMap[p.Y][p.X] == 0)
             {
-                if (ovenContents == Item.CROISSANT)
+                var move = Move(p);
+                if (moves.Add(move))
                 {
-                    if (me.Item != Item.NONE)
-                        Use(game.FindClosestFreeTable().Position, "leave for oven");
-                    else
-                        Use(game.Oven.Position, "take CROISSANT");
-                }
-                else if (me.Item == Item.DOUGH)
-                {
-                    Use(game.Oven.Position, "oven");
-                }
-                else if (me.Item != Item.NONE)
-                {
-                    Use(game.FindClosestFreeTable().Position, "leave");
-                }
-                else
-                {
-                    Use(game.Dough.Position, "dough");
-                }
-            }
-            else if (order.Item.Constains(Item.CHOPPED_STRAWBERRIES) &&
-                !me.Item.Constains(Item.CHOPPED_STRAWBERRIES) &&
-                !game.Tables.Find(Item.CHOPPED_STRAWBERRIES).Any())
-            {
-                if (me.Item == Item.STRAWBERRIES)
-                {
-                    Use(game.ChoppingBoard.Position, "chopp");
-                }
-                else if (me.Item != Item.NONE)
-                {
-                    Use(game.FindClosestFreeTable().Position, "drop for straw");
-                }
-                else
-                {
-                    var straw = game.Tables
-                        .Find(Item.STRAWBERRIES)
-                        .Concat(new[] { game.Strawberry })
-                        .OrderBy(x => x.Position.Manhattan(me.Position))
-                        .First();
-
-                    Use(straw.Position, "take straw");
+                    var g = new Game(game);
+                    g.Players[game.CurrentPlayerIndex].Position = p;
+                    GetAvailableMoves(g, moves, level - 1);
                 }
             }
             else
             {
-                if (!me.Item.Constains(Item.DISH))
-                {
-                    if (me.Item != Item.NONE)
-                        Use(game.FindClosestFreeTable().Position, "leave for dish");
-                    else
-                    {
-                        var d = game.Tables.Find(Item.DISH).Concat(new[] { game.Dishwasher }).First();
-                        Use(d.Position, "take dish");
-                    }
-                }
-                else if (order.Item.Constains(Item.CROISSANT) && !me.Item.Constains(Item.CROISSANT) && game.Tables.Find(Item.CROISSANT).Any())
-                {
-                    Use(game.Tables.FindBest(Item.CROISSANT).Position, "take CROISSANT");
-                }
-                else if (order.Item.Constains(Item.CHOPPED_STRAWBERRIES) && !me.Item.Constains(Item.CHOPPED_STRAWBERRIES) && game.Tables.Find(Item.CHOPPED_STRAWBERRIES).Any())
-                {
-                    Use(game.Tables.FindBest(Item.CHOPPED_STRAWBERRIES).Position, "take CHOPPED_STRAWBERRIES");
-                }
-                else if (order.Item.Constains(Item.BLUEBERRIES) && !me.Item.Constains(Item.BLUEBERRIES))
-                {
-                    Use(game.Blueberry.Position, "take Blueberry");
-                }
-                else if (order.Item.Constains(Item.ICE_CREAM) && !me.Item.Constains(Item.ICE_CREAM))
-                {
-                    Use(game.IceCream.Position, "take ice cream");
-                }
-                else
-                {
-                    Use(game.Window.Position, "place to window");
-                }
+                moves.Add(Use(p));
             }
         }
     }
 
-    private static Item CreateItem(string s)
+    private static Move Use(Position p)
+    {
+        return new Move { MoveType = MoveType.Use, Position = p };
+    }
+
+    private static Move Move(Position p)
+    {
+        return new Move { MoveType = MoveType.Move, Position = p };
+    }
+
+    private static Item CreateItem(string content)
     {
         var item = Item.NONE;
 
-        if (s.Contains("BLUEBERRIES")) item |= Item.BLUEBERRIES;
-        if (s.Contains("ICE_CREAM")) item |= Item.ICE_CREAM;
-        if (s.Contains("CHOPPED_STRAWBERRIES")) item |= Item.CHOPPED_STRAWBERRIES;
-        if (s.Contains("CROISSANT")) item |= Item.CROISSANT;
-        if (s.Contains("DOUGH")) item |= Item.DOUGH;
-        if (s.Contains("STRAWBERRIES")) item |= Item.STRAWBERRIES;
-        if (s.Contains("DISH")) item |= Item.DISH;
-        if (s.Contains("TART")) item |= Item.TART;
-        if (s.Contains("CHOPPED_DOUGH")) item |= Item.CHOPPED_DOUGH;
+        foreach (var s in content.Split('-'))
+        {
+            if (s.Equals("BLUEBERRIES")) item |= Item.BLUEBERRIES;
+            if (s.Equals("ICE_CREAM")) item |= Item.ICE_CREAM;
+            if (s.Equals("CHOPPED_STRAWBERRIES")) item |= Item.CHOPPED_STRAWBERRIES;
+            if (s.Equals("CROISSANT")) item |= Item.CROISSANT;
+            if (s.Equals("DOUGH")) item |= Item.DOUGH;
+            if (s.Equals("STRAWBERRIES")) item |= Item.STRAWBERRIES;
+            if (s.Equals("DISH")) item |= Item.DISH;
+            if (s.Equals("RAW_TART")) item |= Item.RAW_TART;
+            if (s.Equals("TART")) item |= Item.TART;
+            if (s.Equals("CHOPPED_DOUGH")) item |= Item.CHOPPED_DOUGH;
+        }
 
         return item;
     }
@@ -300,6 +542,212 @@ public class MainClass
 
 public static class ext
 {
+    public static bool ApplyMove(this Game g, Move p)
+    {
+        if (p.MoveType == MoveType.Use)
+        {
+            return ApplyUse(g, p.Position);
+        }
+        else
+        {
+            g.Players[g.CurrentPlayerIndex].Position = p.Position;
+            return true;
+        }
+    }
+
+    public static bool ApplyUse(this Game g, Position p)
+    {
+        var t = g.Tables.First(x => x.Position.Equals(p));
+        var player = g.Players[g.CurrentPlayerIndex];
+
+        if (Game.TablesMap[p.Y][p.X] == 0) throw new ArgumentException("p is not table");
+
+        if (player.Item != Item.CHOPPED_DOUGH && (
+            t.TableFunction == TableFunction.Blueberry ||
+            t.TableFunction == TableFunction.IceCream ||
+            t.TableFunction == TableFunction.Strawberry ||
+            t.TableFunction == TableFunction.Dough)) return false;
+
+        switch (t.TableFunction)
+        {
+            case TableFunction.Dishwasher:
+                if (player.Item == Item.NONE)
+                {
+                    player.Item = Item.DISH;
+                    return true;
+                }
+
+                if ((player.Item ^ Item.DISH) != Item.NONE)
+                {
+                    player.Item = Item.DISH;
+                    return true;
+                }
+
+                if (player.Item != Item.NONE && !player.Item.Constains(Item.DISH))
+                {
+                    player.Item |= Item.DISH;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.Blueberry:
+                if (player.Item == Item.NONE)
+                {
+                    player.Item = Item.BLUEBERRIES;
+                    return true;
+                }
+
+                if (player.Item == Item.CHOPPED_DOUGH)
+                {
+                    player.Item = Item.RAW_TART;
+                    return true;
+                }
+
+                if (player.Item == Item.DISH)
+                {
+                    player.Item |= Item.BLUEBERRIES;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.Strawberry:
+                if (player.Item == Item.NONE)
+                {
+                    player.Item = Item.STRAWBERRIES;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.IceCream:
+                if (player.Item == Item.NONE)
+                {
+                    player.Item = Item.ICE_CREAM;
+                    return true;
+                }
+
+                if (player.Item == Item.DISH)
+                {
+                    player.Item |= Item.ICE_CREAM;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.Dough:
+                if (player.Item == Item.NONE)
+                {
+                    player.Item = Item.DOUGH;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.ChoppingBoard:
+                switch (player.Item)
+                {
+                    case Item.STRAWBERRIES:
+                        player.Item = Item.CHOPPED_STRAWBERRIES;
+                        return true;
+                    case Item.DOUGH:
+                        player.Item = Item.CHOPPED_DOUGH;
+                        return true;
+                    default:
+                        return false;
+                }
+
+            case TableFunction.Oven:
+                if ((player.Item == Item.DOUGH || player.Item == Item.RAW_TART) && g.OvenContents == Item.NONE)
+                {
+                    g.OvenContents = player.Item;
+                    player.Item = Item.NONE;
+                    g.OvenTimer = 10;
+                    return true;
+                }
+
+                if ((g.OvenContents == Item.DOUGH || g.OvenContents == Item.RAW_TART) && (player.Item == Item.NONE || player.Item == Item.DISH))
+                {
+                    player.Item |= g.OvenContents;
+                    g.OvenContents = Item.NONE;
+                    g.OvenTimer = 10;
+                    return true;
+                }
+
+                return false;
+
+            case TableFunction.Window:
+                if (g.Orders.Any(x => x.Item == g.Players[g.CurrentPlayerIndex].Item))
+                {
+                    g.Score += 100;
+                }
+
+                player.Item = Item.NONE;
+                return true;
+
+            default:
+                if (player.Item == Item.NONE || t.Item == Item.NONE)
+                {
+                    var swap = player.Item;
+                    player.Item = t.Item;
+                    t.Item = swap;
+                    return true;
+                }
+
+                if (player.Item == Item.DISH)
+                {
+                    if ((t.Item & Item.DESSERT) != 0)
+                    {
+                        player.Item |= t.Item;
+                        t.Item = Item.NONE;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (t.Item == Item.DISH)
+                {
+                    if ((player.Item & Item.DESSERT) != 0 && !player.Item.Constains(Item.DISH))
+                    {
+                        player.Item |= t.Item;
+                        t.Item = Item.NONE;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if ((player.Item | t.Item) == (Item.CHOPPED_DOUGH | Item.BLUEBERRIES))
+                {
+                    t.Item = Item.NONE;
+                    player.Item = Item.RAW_TART;
+                    return true;
+                }
+
+                return false;
+        }
+    }
+
+    public static IEnumerable<Position> GetAdjustentPositions(this Position p)
+    {
+        if (p.X > 0)
+        {
+            if (p.Y > 0) yield return new Position(p.X - 1, p.Y - 1);
+            yield return new Position(p.X - 1, p.Y);
+            if (p.Y < 6) yield return new Position(p.X - 1, p.Y + 1);
+        }
+
+        if (p.X < 10)
+        {
+            if (p.Y > 0) yield return new Position(p.X + 1, p.Y - 1);
+            yield return new Position(p.X + 1, p.Y);
+            if (p.Y < 6) yield return new Position(p.X + 1, p.Y + 1);
+        }
+
+        if (p.Y > 0) yield return new Position(p.X, p.Y - 1);
+        if (p.Y < 6) yield return new Position(p.X, p.Y + 1);
+    }
+
     public static bool Constains(this Item item, Item what)
     {
         return (item & what) == what;
@@ -312,9 +760,14 @@ public static class ext
 
     public static Table FindClosestFreeTable(this Game game)
     {
+        return game.FindClosestFreeTable(game.Players[0].Position);
+    }
+
+    public static Table FindClosestFreeTable(this Game game, Position p)
+    {
         return game.Tables
             .Where(x => x.Item == Item.NONE)
-            .OrderBy(x => x.Position.Manhattan(game.Players[0].Position))
+            .OrderBy(x => x.Position.Manhattan(p))
             .First();
     }
 
@@ -325,6 +778,7 @@ public static class ext
 
     public static IEnumerable<Table> Find(this List<Table> tables, Item item)
     {
+        //return tables.Where(x => x.Item == item);
         return tables.Where(x => x.Item.Constains(item));
     }
 }
