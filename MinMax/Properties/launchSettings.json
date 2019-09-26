@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MinMax": {
+      "commandName": "Project",
+      "commandLineArgs": "< ../../../01.txt"
+    }
+  }
+}

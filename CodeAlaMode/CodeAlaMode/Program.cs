@@ -20,7 +20,6 @@ public class Game
     public Order[] Orders;
     public Item OvenContents;
     public int OvenTimer;
-
     public Player Me => Players[0];
 
     public Game()
@@ -303,6 +302,7 @@ public class MainClass
     static void Main()
     {
         Game game;
+        Item prevOrder = Item.NONE;
 
 #if !DEBUG
         game = ReadGame();
@@ -313,10 +313,30 @@ public class MainClass
             ReadGameTurn(game);
             D(game.ToString());
 #else
-            game = new Game("AAAAAAAAAAAvAAAAAAAAAAAQAAAAACAAAAAAMBACAABAAAAHAFAAAAEAYAIAAABwAAAAAIAAAAAAkAAAAwCgAAAAAAEAAAAAoQAAAAACAAAIACIAAAAAMgAAAABCIAAAAFIAAAUAcgAABACCAAAAAKIAAAAAAwAAAAAjAAAAAFMAAAAAgwAAAACjAAAAAAQAAAAAJAAAAAA0AAAAAFQAAAAAZAAAAAB0AAAAAIQAAAAApAAAAAAFAAAAAKUAAAAABgAAAAAWAAAAACYAAAYANgAAAABGAAAAAFYAAAIAZgAAAAB2AAAAAIYAAAAAlgAAAACmAAAAAAMAAAAZAAAACwIAABADAAABBwAAOAAAABcDAABhEABBAAA=");
+            game = new Game("AAAAAAAAAAAvAAAAAAAAAAAQAAAAACAAAAAAMAAAAABAAAAEAFAAAAEAYAAAAABwAAAAAIAAAAAAkAAAAACgAAAAAAEAAAAAoQAAAwACAAAAACIAAAAAMgAAAABCAAAAAFIAAAAAcgAABQCCEQEAAKIAAAAAAwAAAAAjAAAAAFMAAAAAgwAAAACjAAAAAAQAAAAAJAAABgA0AAAAAFQAAAAAZAQAAAB0AAAAAIQAAAAApAABAAAFAAAAAKUAAAgABgAAAAAWAAAAACYAAAAANgAAAABGAAAAAFYAAAIAZgAABwB2AAAAAIYAAAAAlgAAAACmAAAAAAMAAAAxAQAALgUAADkCAABUBwAAMAIAAJIFAACROQKTAAE=");
 #endif
 
-            var tableDishes = game.Tables.Find(Item.DISH).Where(x=> x.Item != Item.DISH).ToArray();
+            if (game.Orders.Any(o => o.Item == game.Me.Item))
+            {
+                Use(game.Window.Position, "serve ready order");
+                continue;
+            }
+
+            var readyOrder = game.Tables.FirstOrDefault(t => game.Orders.Any(o => o.Item == t.Item));
+            if (readyOrder != null)
+            {
+                if (game.Me.Item == Item.NONE)
+                {
+                    Use(readyOrder.Position, "take ready order");
+                }
+                else
+                {
+                    Use(game.FindClosestFreeTable().Position, "drop for ready order");
+                }
+                continue;
+            }
+
+            var tableDishes = game.Tables.Find(Item.DISH).Where(x => x.Item != Item.DISH).ToArray();
 
             Order order = null;
 
@@ -334,17 +354,266 @@ public class MainClass
             //        .OrderByDescending(x => x.Award).FirstOrDefault();
             //}
 
-            if (order == null) order = game.Orders[0];
+            if (prevOrder != Item.NONE)
+            {
+                order = game.Orders.FirstOrDefault(x => x.Item == prevOrder);
+            }
+
+            if (order == null) order = game.Orders.Last();
+            prevOrder = order.Item;
 
             D("order: " + order.Item);
 
-            if (CookWhatMissed(game, order)) continue;
+            if (order.Item.Constains(Item.TART) &&
+                !game.Me.Item.Constains(Item.TART) &&
+                !game.Tables.Find(Item.TART).Any())
+            {
+                CookTart1(game);
+            }
+            else if (order.Item.Constains(Item.CROISSANT) &&
+                !game.Me.Item.Constains(Item.CROISSANT) &&
+                !game.Tables.Any(x => x.Item == Item.CROISSANT))
+            {
+                CookCroissant1(game);
+            }
+            else if (order.Item.Constains(Item.CHOPPED_STRAWBERRIES) &&
+                !game.Me.Item.Constains(Item.CHOPPED_STRAWBERRIES) &&
+                !game.Tables.Any(x => x.Item == Item.CHOPPED_STRAWBERRIES))
+            {
+                if (game.Me.Item == Item.STRAWBERRIES)
+                {
+                    Use(game.ChoppingBoard.Position, "chopp");
+                }
+                else if (game.Me.Item != Item.NONE)
+                {
+                    Use(game.FindClosestFreeTable().Position, "drop for straw");
+                }
+                else
+                {
+                    var straw = game.Tables
+                        .Find(Item.STRAWBERRIES)
+                        .Concat(new[] { game.Strawberry })
+                        .OrderBy(x => x.Position.Manhattan(game.Me.Position))
+                        .First();
 
-            D("None missed to cook");
+                    Use(straw.Position, "take straw");
+                }
+            }
+            else
+            {
+                if (!game.Me.Item.Constains(Item.DISH))
+                {
+                    if (IsRedundant(order, game.Me.Item))
+                    //if (game.Me.Item != Item.NONE)
+                    {
+                        //if( order.Item.Constains(me.Item)) Use(game.FindClosestFreeTable(game.Window.Position).Position, "leave for dish near w");
+                        Use(game.FindClosestFreeTable().Position, "leave for dish");
+                    }
+                    else
+                    {
+                        var d = game.Tables.FirstOrDefault(x => x.Item.Constains(Item.DISH) && !IsRedundant(order, x.Item));
 
-            if (ServeOrder(game, order)) continue;
+                        if (d == null) d = game.Dishwasher;
 
-            Console.WriteLine("WAIT");
+
+                        //var d = game.Tables
+                        //    .Where(x => x.Item.Constains(Item.DISH) && (x.Item & ~order.Item) == 0)
+                        //    .Concat(new[] { game.Dishwasher })
+                        //    .OrderBy(x => x.Position.Manhattan(me.Position))
+                        //    .First();
+                        //var d = game.Tables.Find(Item.DISH).Concat(new[] { game.Dishwasher }).First();
+                        //Use(d.Position, "take dish");
+
+                        Use(d.Position, "take dish ");
+                    }
+                }
+                else
+                {
+                    if (IsRedundant(order, game.Me.Item))
+                    {
+                        Use(game.FindClosestFreeTable().Position, "put plate. redundant");
+                    }
+                    else
+                    {
+                        var rest = new List<Table>();
+                        Item missed = Item.NONE;
+
+                        if (order.Item.Constains(Item.TART) &&
+                            !game.Me.Item.Constains(Item.TART))
+                        {
+                            var i = game.Tables.Where(x => x.Item == Item.TART);
+                            if (i.Any()) rest.AddRange(i);
+                            else missed |= Item.TART;
+                        }
+
+                        if (order.Item.Constains(Item.CROISSANT) &&
+                            !game.Me.Item.Constains(Item.CROISSANT))
+                        {
+                            rest.AddRange(game.Tables.Where(x => x.Item == Item.CROISSANT));
+                        }
+
+                        if (order.Item.Constains(Item.CHOPPED_STRAWBERRIES) &&
+                                !game.Me.Item.Constains(Item.CHOPPED_STRAWBERRIES))
+                        {
+                            rest.AddRange(game.Tables.Where(x => x.Item == Item.CHOPPED_STRAWBERRIES));
+                        }
+
+                        if (order.Item.Constains(Item.BLUEBERRIES) &&
+                            !game.Me.Item.Constains(Item.BLUEBERRIES))
+                        {
+                            rest.AddRange(game.Tables.Where(x => x.Item == Item.BLUEBERRIES));
+                            rest.Add(game.Blueberry);
+                        }
+
+                        if (order.Item.Constains(Item.ICE_CREAM) &&
+                            !game.Me.Item.Constains(Item.ICE_CREAM))
+                        {
+                            rest.AddRange(game.Tables.Where(x => x.Item == Item.ICE_CREAM));
+                            rest.Add(game.IceCream);
+                        }
+
+                        if (rest.Any())
+                        {
+                            rest.Sort((x, y) => x.Position.Manhattan(game.Me.Position) - y.Position.Manhattan(game.Me.Position));
+                            var closest = rest.First(x => (x.Item & Item.DISH) == 0);
+                            Use(closest.Position, "take closest " + closest.Item);
+                        }
+                        else if (missed == Item.NONE)
+                        {
+                            Use(game.Window.Position, "place to window");
+                        }
+                        else
+                        {
+                            Use(game.FindClosestFreeTable().Position, "put plate. missed: " + missed);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void CookCroissant1(Game game)
+    {
+        if (game.OvenContents == Item.DOUGH || game.OvenContents == Item.RAW_TART)
+        {
+            if (game.Me.Item != Item.NONE)
+            {
+                Use(game.FindClosestFreeTable().Position, "leave anyting for taking from oven");
+            }
+            else
+            {
+                Move(game.Oven.Position, "go oven and wait");
+            }
+        }
+        else if (game.OvenContents == Item.CROISSANT || game.OvenContents == Item.TART)
+        {
+            if (game.Me.Item != Item.NONE)
+                Use(game.FindClosestFreeTable().Position, "leave for oven");
+            else
+                Use(game.Oven.Position, "take CROISSANT or TART from oven");
+        }
+        else if (game.Me.Item == Item.DOUGH)
+        {
+            Use(game.Oven.Position, "oven for CROISSANT");
+        }
+        else if (game.Me.Item != Item.NONE)
+        {
+            Use(game.FindClosestFreeTable().Position, "leave anyting for taking C from oven");
+        }
+        else
+        {
+            Use(FindClosestDough1(game), "take dough");
+        }
+    }
+
+    private static Position FindClosestDough1(Game game)
+    {
+        return game.Tables
+            .Find(Item.DOUGH)
+            .Concat(new[] { game.Dough })
+            .OrderBy(x => x.Position.Manhattan(game.Me.Position))
+            .First().Position;
+    }
+
+    private static void CookTart1(Game game)
+    {
+        if (game.Me.Item.Constains(Item.TART))
+        {
+            Use(game.FindClosestFreeTable().Position, "put tart nearby");
+        }
+        else if (game.OvenContents == Item.TART)
+        {
+            if (game.Me.Item == Item.NONE)
+            {
+                Use(game.Oven.Position, "take tart from over");
+            }
+            else
+            {
+                var closest = game.FindClosestFreeTable();
+                Use(closest.Position, "put what I have");
+            }
+        }
+        else if (game.Me.Item == Item.RAW_TART)
+        {
+            if (game.OvenContents == Item.NONE)
+            {
+                Use(game.Oven.Position, "put raw_tart to oven");
+            }
+            else if (game.OvenContents == Item.CROISSANT)
+            {
+                Use(game.FindClosestFreeTable().Position, "put RT for clean oven from C");
+            }
+            else
+            {
+                Move(game.Oven.Position, "wait for C in oven");
+            }
+        }
+        else if (game.Tables.Find(Item.RAW_TART).Any())
+        {
+            if (game.Me.Item == Item.NONE)
+            {
+                if (game.OvenContents == Item.CROISSANT) Use(game.Oven.Position, "take C from Oven");
+                else Use(game.Tables.FindBest(Item.RAW_TART).Position, "take RT");
+            }
+            else
+            {
+                Use(game.FindClosestFreeTable(game.Oven.Position).Position, "put whatever for RT");
+            }
+        }
+        else
+        {
+            CookRawTart1(game);
+        }
+    }
+
+    private static void CookRawTart1(Game game)
+    {
+        if (game.Me.Item.Constains(Item.CHOPPED_DOUGH))
+        {
+            Use(game.Blueberry.Position, "add B to CD");
+        }
+        else if (game.Me.Item.Constains(Item.DOUGH))
+        {
+            Use(game.ChoppingBoard.Position, "chop D");
+        }
+        else if (game.Tables.Find(Item.CHOPPED_DOUGH).Any())
+        {
+            if (game.Me.Item == Item.NONE)
+            {
+                Use(game.Tables.FindBest(Item.CHOPPED_DOUGH).Position, "get closest CD");
+            }
+            else
+            {
+                Use(game.FindClosestFreeTable().Position, "drop for CD");
+            }
+        }
+        else if (game.Me.Item != Item.NONE)
+        {
+            Use(game.FindClosestFreeTable().Position, "drop for D");
+        }
+        else
+        {
+            Use(FindClosestDough1(game), "take D");
         }
     }
 
@@ -401,16 +670,16 @@ public class MainClass
 
     private static bool ServeOrder(Game game, Order order)
     {
-        var tableDish = game.Tables.Find(Item.DISH).Where(x=> x.Item != Item.DISH).FirstOrDefault(d => !IsRedundant(order, d.Item));
+        var tableDish = game.Tables.Find(Item.DISH).Where(x => x.Item != Item.DISH).FirstOrDefault(d => !IsRedundant(order, d.Item));
 
-        if( tableDish != null )
+        if (tableDish != null)
         {
-            if( game.Me.Item == Item.NONE )
+            if (game.Me.Item == Item.NONE)
             {
                 Use(tableDish.Position, "take dish with " + tableDish.Item);
                 return true;
             }
-            else if( game.Me.Item < tableDish.Item )
+            else if (game.Me.Item < tableDish.Item)
             {
                 Use(game.FindClosestFreeTable().Position, "drop all to take dish with " + tableDish.Item);
                 return true;
@@ -512,13 +781,13 @@ public class MainClass
         if (IsMissed(game, order, Item.TART))
         {
             D("TART missed");
-            if( CookTart(game, order) ) return true;
+            if (CookTart(game, order)) return true;
         }
 
         if (IsMissed(game, order, Item.CROISSANT))
         {
             D("C missed");
-            if( CookCroissant(game) ) return true;
+            if (CookCroissant(game)) return true;
         }
 
         if (IsMissed(game, order, Item.CHOPPED_STRAWBERRIES))
@@ -564,7 +833,7 @@ public class MainClass
                 return true;
             }
 
-            Use(game.FindClosestFreeTable(game.Oven.Position).Position, "leave for oven");
+            Use(game.FindClosestFreeTable().Position, "leave for oven");
             return true;
         }
 

@@ -168,6 +168,11 @@ class Solution
         Console.Error.WriteLine("time: " + timer.Elapsed.TotalMilliseconds);
         Console.Error.WriteLine("calcs: " + counter);
 
+        ShowResult();
+    }
+
+    private static void ShowResult()
+    {
         var grid = new StringBuilder[height];
         for (var r = 0; r < height; r++)
         {
@@ -196,12 +201,17 @@ class Solution
             bb.Remove(b);
 
             var allTracks = GetAllTracks(b, bb);
+            if (!allTracks.Any()) return false;
+
             foreach (var p in allTracks)
             {
                 WholeTrack = savedTrack.ToHashSet();
                 WholeTrack.UnionWith(p);
 
-                if (Solve(bb)) return true;
+                if (Solve(bb))
+                {
+                    return true;
+                }
             }
         }
 
@@ -238,10 +248,6 @@ class Solution
 
     private static IEnumerable<List<Cell>> GetPossibleSubTracks(List<Cell> track, int count, HashSet<Cell> balls)
     {
-        counter++;
-        //Console.Error.WriteLine(count + " " + counter);
-        //Shuffle(dirs);
-
         foreach (var d in dirs)
         {
             var end = track.Last();

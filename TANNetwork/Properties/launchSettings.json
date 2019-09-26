@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TANNetwork": {
+      "commandName": "Project",
+      "commandLineArgs": "< C:\\Users\\ikolu\\sources\\codingame\\TANNetwork\\in.txt"
+    }
+  }
+}

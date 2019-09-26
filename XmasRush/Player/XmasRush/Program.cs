@@ -1,22 +1,126 @@
-﻿using System;
+﻿//move to the tile where 1 shift to goal
+
+using System;
 using System.Linq;
 using System.Text;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 
+public class XmaxRush
+{
+    public static Random Rnd = new Random();
+    static Stopwatch timer = new Stopwatch();
+    static int ticks = 0;
+
+    static void Main(string[] args)
+    {
+        var board = new Board();
+        var lastPush = "";
+        var samePushes = 0;
+
+        while (true)
+        {
+//#if DEBUG
+//            board.Deserialize("AAYDCgUHBQYOCgkJCgsKBQoHBw0JDQoDCQoGDAoHBgcNDQoFCg4KBgYKCwkFDQUKDAkAAAAAAAAAAAwAAAAGBgAAAAYAAAAMAAAACRgAAAAEAAAAQk9PSwEAAAABAAAAAAAAAAEHAAAARElBTU9ORAIAAAAAAAAAAAAAAAAGAAAAU0NST0xMAQAAAAAAAAABAAAAAAQAAABGSVNIAgAAAAQAAAABAAAAAAUAAABTV09SRAQAAAAEAAAAAQAAAAAEAAAATUFTSwQAAAABAAAAAAAAAAAEAAAAQ0FORQAAAAABAAAAAAAAAAEFAAAAQ0FORFkFAAAAAAAAAAEAAAAABQAAAEFSUk9XAAAAAAQAAAAAAAAAAQQAAABCT09LBQAAAAUAAAABAAAAAQYAAABQT1RJT04AAAAABQAAAAEAAAAABwAAAERJQU1PTkQEAAAABgAAAAEAAAAABgAAAFNISUVMRAAAAAAGAAAAAQAAAAADAAAAS0VZBgAAAAQAAAAAAAAAAAUAAABTV09SRAIAAAACAAAAAAAAAAAGAAAAU0hJRUxEBgAAAAAAAAAAAAAAAAQAAABNQVNLAgAAAAUAAAABAAAAAAQAAABDQU5FBgAAAAUAAAABAAAAAQYAAABTQ1JPTEwFAAAABgAAAAAAAAAABQAAAEFSUk9XBgAAAAIAAAABAAAAAQMAAABLRVkAAAAAAgAAAAEAAAAABgAAAFBPVElPTgYAAAABAAAAAAAAAAAFAAAAQ0FORFkBAAAABgAAAAAAAAAABAAAAEZJU0gEAAAAAgAAAAAAAAAA");
+//#else
+            board.Load();
+            timer.Restart();
+            Console.Error.WriteLine(board.Serialize());
+//#endif
+            ticks = 0;
+
+            D(board.Players[0].NumPlayerCards, board.Players[1].NumPlayerCards);
+
+            var solver = new Solver(board);
+            var turn = solver.FindBestTurn();
+
+            if (!board.MoveTurn)
+            {
+                if (turn == lastPush)
+                {
+                    samePushes++;
+                    D("same push", samePushes);
+
+                    if (samePushes > 3 && board.Players[0].NumPlayerCards >= board.Players[1].NumPlayerCards)
+                    {
+                        D("break clinch");
+                        turn = Turn.RandomPush().ToString();
+                        lastPush = turn;
+                        samePushes = 0;
+                    }
+                }
+                else
+                {
+                    lastPush = turn;
+                    samePushes = 0;
+                }
+            }
+
+            Console.WriteLine(turn);
+        }
+    }
+
+    public static void AssertTimeout()
+    {
+        ticks++;
+        if (timer.ElapsedMilliseconds > 45)
+        {
+            Console.Error.WriteLine($"timeout {ticks}, {timer.ElapsedMilliseconds}");
+            throw new TimeoutException();
+        }
+    }
+
+    public static void D(params object[] p)
+    {
+        Console.Error.WriteLine(string.Join(" ", p.Select(x => x?.ToString())));
+    }
+}
+
+[Flags]
 public enum Direction
 {
-    Up = 0,
-    Right = 1,
-    Down = 2,
-    Left = 3
+    Up = 0b1000,
+    Right = 0b0100,
+    Down = 0b0010,
+    Left = 0b0001
 }
 
 static class DirectionExt
 {
-    public static Direction Opposite(this Direction dir) => (Direction)(((int)dir + 2) % 4);
+    public static Direction Opposite(this Direction dir)
+    {
+        switch (dir)
+        {
+            case Direction.Up:
+                return Direction.Down;
+            case Direction.Right:
+                return Direction.Left;
+            case Direction.Down:
+                return Direction.Up;
+            case Direction.Left:
+                return Direction.Right;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    public static string AsStr(this Direction dir)
+    {
+        switch (dir)
+        {
+            case Direction.Up:
+                return "UP";
+            case Direction.Right:
+                return "RIGHT";
+            case Direction.Down:
+                return "DOWN";
+            case Direction.Left:
+                return "LEFT";
+            default:
+                throw new ArgumentException();
+        }
+    }
 }
 
 public class MyPath
@@ -64,22 +168,13 @@ public class MyPath
     }
 }
 
-public class Tile
+public struct Tile
 {
-    public readonly bool Up;
-    public readonly bool Right;
-    public readonly bool Down;
-    public readonly bool Left;
-
     public readonly byte Value;
 
     public Tile(byte v)
     {
         Value = v;
-        Up = (v & (1 << 3)) != 0;
-        Right = (v & (1 << 2)) != 0;
-        Down = (v & (1 << 1)) != 0;
-        Left = (v & 1) != 0;
     }
 
     public Tile(string input)
@@ -87,49 +182,69 @@ public class Tile
         Value = 0;
         if (input[0] == '1')
         {
-            Up = true;
-            Value |= 1 << 3;
+            Value |= (byte)Direction.Up;
         }
 
         if (input[1] == '1')
         {
-            Right = true;
-            Value |= 1 << 2;
+            Value |= (byte)Direction.Right;
         }
 
         if (input[2] == '1')
         {
-            Down = true;
-            Value |= 1 << 1;
+            Value |= (byte)Direction.Down;
         }
 
         if (input[3] == '1')
         {
-            Left = true;
-            Value |= 1;
+            Value |= (byte)Direction.Left;
         }
     }
 
     public IEnumerable<Direction> GetDirections()
     {
-        if (Up) yield return Direction.Up;
-        if (Down) yield return Direction.Down;
-        if (Left) yield return Direction.Left;
-        if (Right) yield return Direction.Right;
+        if ((Value & (byte)Direction.Up) > 0) yield return Direction.Up;
+        if ((Value & (byte)Direction.Down) > 0) yield return Direction.Down;
+        if ((Value & (byte)Direction.Left) > 0) yield return Direction.Left;
+        if ((Value & (byte)Direction.Right) > 0) yield return Direction.Right;
     }
 
     internal bool Has(Direction dir)
     {
-        switch (dir)
+        return (Value & (byte)dir) > 0;
+    }
+
+    public override string ToString()
+    {
+        return ToChar().ToString();
+    }
+
+    public char ToChar()
+    {
+        switch (Value)
         {
-            case Direction.Up:
-                return Up;
-            case Direction.Right:
-                return Right;
-            case Direction.Down:
-                return Down;
-            case Direction.Left:
-                return Left;
+            case 0b0011:
+                return '┐';
+            case 0b1001:
+                return '┘';
+            case 0b0101:
+                return '─';
+            case 0b0110:
+                return '┌';
+            case 0b1100:
+                return '└';
+            case 0b1010:
+                return '│';
+            case 0b0111:
+                return '┬';
+            case 0b1101:
+                return '┴';
+            case 0b1110:
+                return '├';
+            case 0b1011:
+                return '┤';
+            case 0b1111:
+                return '┼';
             default:
                 throw new ArgumentException();
         }
@@ -217,6 +332,17 @@ public class Player
     public Vector Vector;
     public int NumPlayerCards;
     public Tile Tile;
+
+    public Player()
+    {
+    }
+
+    public Player(Player p)
+    {
+        Vector = p.Vector;
+        NumPlayerCards = p.NumPlayerCards;
+        Tile = p.Tile;
+    }
 }
 
 public class Item
@@ -224,12 +350,19 @@ public class Item
     public string Name;
     public Vector Vector;
     public int PlayerId;
-}
+    public bool Quest;
 
-public class Quest
-{
-    public string Name;
-    public int QuestPlayerId;
+    public Item()
+    {
+    }
+
+    public Item(Item other)
+    {
+        Name = other.Name;
+        Vector = other.Vector;
+        PlayerId = other.PlayerId;
+        Quest = other.Quest;
+    }
 }
 
 public class Push
@@ -254,8 +387,22 @@ public class Board
     public bool MoveTurn;
     public Tile[,] Cells = new Tile[7, 7];
     public Player[] Players = new Player[2];
-    public Item[] Items;
-    public Quest[] Quests;
+    public List<Item> Items;
+
+    public Board Clone()
+    {
+        var clone = new Board();
+        clone.MoveTurn = MoveTurn;
+
+        for (var y = 0; y < 7; y++)
+            for (var x = 0; x < 7; x++)
+                clone.Cells[x, y] = Cells[x, y];
+
+        clone.Players = new[] { new Player(Players[0]), new Player(Players[1]) };
+        clone.Items = Items.Select(x => new Item(x)).ToList();
+
+        return clone;
+    }
 
     private string ReadLine()
     {
@@ -287,55 +434,64 @@ public class Board
         };
 
         int numItems = int.Parse(ReadLine()); // the total number of items available on board and on player tiles
-        Items = new Item[numItems];
+        Items = new List<Item>();
         for (int i = 0; i < numItems; i++)
         {
             var inputs = ReadLine().Split(' ');
-            Items[i] = new Item
+            Items.Add(new Item
             {
                 Name = inputs[0],
                 Vector = new Vector(int.Parse(inputs[1]), int.Parse(inputs[2])),
                 PlayerId = int.Parse(inputs[3])
-            };
+            });
         }
 
         int numQuests = int.Parse(ReadLine()); // the total number of revealed quests for both players
-        Quests = new Quest[numQuests];
         for (int i = 0; i < numQuests; i++)
         {
             var inputs = ReadLine().Split(' ');
-            Quests[i] = new Quest
-            {
-                Name = inputs[0],
-                QuestPlayerId = int.Parse(inputs[1])
-            };
+
+            var playerId = int.Parse(inputs[1]);
+            Items.First(x => x.Name == inputs[0] && x.PlayerId == playerId).Quest = true;
         }
     }
 
     public IEnumerable<Item> GetBoardQuestsItems(int playerId)
     {
-        foreach (var quest in Quests.Where(x => x.QuestPlayerId == 0))
+        return Items.Where(x => x.Quest && x.PlayerId == 0 && x.Vector.X >= 0);
+    }
+
+    public void Move(int playerIndex, Direction dir)
+    {
+        var v = Players[playerIndex].Vector.Move(dir, false);
+
+        if (!v.IsValid()) throw new InvalidOperationException();
+
+        Players[playerIndex].Vector = v;
+        var item = GetBoardQuestsItems(playerIndex).FirstOrDefault(x => x.Vector.Equals(v));
+        if (item != null)
         {
-            var f = Items.FirstOrDefault(x => x.PlayerId == 0 && x.Name == quest.Name && x.Vector.X >= 0);
-            if (f != null) yield return f;
+            item.Quest = false;
+            Players[playerIndex].NumPlayerCards--;
+            //todo: add new quest
         }
     }
 
-    public void Push(Push push)
+    public void Push(int index, Direction direction)
     {
-        switch (push.Direction)
+        switch (direction)
         {
             case Direction.Up:
-                PushUp(push.Index);
+                PushUp(index);
                 break;
             case Direction.Right:
-                PushRight(push.Index);
+                PushRight(index);
                 break;
             case Direction.Down:
-                PushDown(push.Index);
+                PushDown(index);
                 break;
             case Direction.Left:
-                PushLeft(push.Index);
+                PushLeft(index);
                 break;
             default:
                 break;
@@ -464,22 +620,15 @@ public class Board
                 writer.Write(Players[i].Tile.Value);
             }
 
-            writer.Write(Items.Length);
-            for (var i = 0; i < Items.Length; i++)
+            writer.Write(Items.Count);
+            for (var i = 0; i < Items.Count; i++)
             {
                 writer.Write(Items[i].Name.Length);
                 writer.Write(Items[i].Name.ToCharArray());
                 writer.Write(Items[i].Vector.X);
                 writer.Write(Items[i].Vector.Y);
                 writer.Write(Items[i].PlayerId);
-            }
-
-            writer.Write(Quests.Length);
-            for (var i = 0; i < Quests.Length; i++)
-            {
-                writer.Write(Quests[i].Name.Length);
-                writer.Write(Quests[i].Name.ToCharArray());
-                writer.Write(Quests[i].QuestPlayerId);
+                writer.Write(Items[i].Quest);
             }
 
             return Convert.ToBase64String(stream.ToArray());
@@ -513,31 +662,22 @@ public class Board
                 };
             }
 
-            Items = new Item[reader.ReadInt32()];
-            for (var i = 0; i < Items.Length; i++)
+            Items = new List<Item>();
+            var itemsCount = reader.ReadInt32();
+            for (var i = 0; i < itemsCount; i++)
             {
                 var len = reader.ReadInt32();
                 var name = new string(reader.ReadChars(len));
 
                 var x = reader.ReadInt32();
                 var y = reader.ReadInt32();
-                Items[i] = new Item
+                Items.Add(new Item
                 {
                     Name = name,
                     Vector = new Vector(x, y),
-                    PlayerId = reader.ReadInt32()
-                };
-            }
-
-            Quests = new Quest[reader.ReadInt32()];
-            for (var i = 0; i < Quests.Length; i++)
-            {
-                var len = reader.ReadInt32();
-                Quests[i] = new Quest
-                {
-                    Name = new string(reader.ReadChars(len)),
-                    QuestPlayerId = reader.ReadInt32()
-                };
+                    PlayerId = reader.ReadInt32(),
+                    Quest = reader.ReadBoolean()
+                });
             }
         }
     }
@@ -552,6 +692,19 @@ public class Board
             if (!Cells[v.X, v.Y].Has(dir.Opposite())) continue;
 
             yield return v;
+        }
+    }
+
+    internal IEnumerable<(Vector, Direction)> GetAdjacentDirections(Vector cell)
+    {
+        foreach (var dir in Cells[cell.X, cell.Y].GetDirections())
+        {
+            var v = cell.Move(dir, false);
+
+            if (!v.IsValid()) continue;
+            if (!Cells[v.X, v.Y].Has(dir.Opposite())) continue;
+
+            yield return (v, dir);
         }
     }
 
@@ -582,117 +735,173 @@ public class Board
         }
         return distanceMap;
     }
+
+    public override string ToString()
+    {
+        var s = new StringBuilder();
+
+        for (var y = 0; y < 7; y++)
+        {
+            for (var x = 0; x < 7; x++)
+            {
+                s.Append(Cells[x, y].ToChar());
+            }
+            s.Append(Environment.NewLine);
+        }
+
+        return s.ToString();
+    }
 }
 
-public class XmaxRush
+//move to the tile where 1 shift to goal
+
+public enum TurnType
 {
-    static Random rnd = new Random();
-    static Stopwatch timer = new Stopwatch();
-    static int ticks = 0;
+    Pass,
+    Move,
+    Push
+}
 
-    static void Main(string[] args)
+//move to the tile where 1 shift to goal
+
+public class Solver
+{
+    private readonly Board originBoard;
+    Turn[] maxTurns;
+    public Turn[] NextTurns;
+    double maxScore = double.MinValue;
+
+    public Solver(Board board)
     {
-        var board = new Board();
+        this.originBoard = board;
+    }
 
-        var prevPush = "";
-        var samePrevPushCount = 0;
+    public string FindBestTurn()
+    {
+        var turns = new Stack<Turn>();
 
-        while (true)
+        try
         {
-#if DEBUG
-            board.Deserialize("AQkKCQYGCg0GCwMOCg4KCgcHBQ0NBw8LAw8MDAsODQcFDQYPBgoKCgsKCgcGCQkGCQ4EAAAABgAAAAwAAAAJBAAAAAEAAAAJAAAACRUAAAAEAAAATUFTSwIAAAAGAAAAAAAAAAMAAABLRVkBAAAAAQAAAAAAAAAFAAAAQ0FORFkFAAAABAAAAAEAAAAEAAAAQk9PSwYAAAABAAAAAQAAAAQAAABDQU5FBgAAAAAAAAAAAAAABAAAAENBTkUAAAAABgAAAAEAAAAFAAAAU1dPUkQEAAAABQAAAAEAAAAEAAAAQk9PSwIAAAAFAAAAAAAAAAUAAABDQU5EWQIAAAAAAAAAAAAAAAYAAABTSElFTEQBAAAAAAAAAAAAAAAFAAAAQVJST1cGAAAAAgAAAAAAAAAFAAAAQVJST1cBAAAABAAAAAEAAAAGAAAAU0hJRUxEBQAAAAUAAAABAAAABAAAAE1BU0sEAAAAAAAAAAEAAAAEAAAARklTSAAAAAACAAAAAAAAAAcAAABESUFNT05EBAAAAAYAAAABAAAABgAAAFBPVElPTgEAAAACAAAAAAAAAAYAAABTQ1JPTEwGAAAAAwAAAAEAAAAFAAAAU1dPUkQDAAAAAQAAAAAAAAAGAAAAU0NST0xMAAAAAAQAAAAAAAAABwAAAERJQU1PTkQFAAAABgAAAAAAAAAGAAAAAwAAAEtFWQAAAAAGAAAAUE9USU9OAAAAAAQAAABNQVNLAAAAAAQAAABNQVNLAQAAAAUAAABTV09SRAEAAAAFAAAAQ0FORFkBAAAA");
-#else
-            board.Load();
-            timer.Restart();
-            Console.Error.WriteLine(board.Serialize());
-#endif
-            ticks = 0;
+            SimulateMoves(originBoard, turns, 2);
+        }
+        catch (TimeoutException) { }
 
-            D(board.Players[0].NumPlayerCards, board.Players[1].NumPlayerCards);
-            if (board.MoveTurn)
+        XmaxRush.D(maxTurns);
+
+        return maxTurns.Last().ToString();
+    }
+
+    private static int CalcScore(Board board, int playerId)
+    {
+        var adjItems = GetAdjacentItems(board, playerId);
+
+        return
+            (12 - board.Players[0].NumPlayerCards) * 100
+            + adjItems * 90
+            //+ adjMap.Count
+            ;
+    }
+
+    static int GetAdjacentItems(Board board, int playerId)
+    {
+        var adjMap = board.CreateAdjacentMap(board.Players[playerId].Vector);
+        var items = board.GetBoardQuestsItems(playerId).ToArray();
+        return items.Count(x => adjMap.ContainsKey(x.Vector));
+    }
+
+    public void SimulateMoves(Board board, Stack<Turn> turns, int deep)
+    {
+        if (turns.Any())
+        {
+            var score = CalcScore(board, 0);
+
+            if (score > maxScore)
             {
-                var items = board.GetBoardQuestsItems(0).ToArray();
-
-                if (items.Length == 0)
-                {
-                    D($"no board items: {items.Length}, numPlayerCards: {board.Players[0].NumPlayerCards} items: {board.Items.Length}, quests: {board.Quests.Length}");
-                    Console.WriteLine("PASS");
-                    continue;
-                }
-
-                var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
-                var adjItems = items
-                    .Where(x => adjMap.ContainsKey(x.Vector))
-                    .OrderBy(x => adjMap[x.Vector]).ToArray();
-
-                D("found adj items: ", adjItems.Length);
-
-                var targets = new List<Vector>();
-                if (adjItems.Any())
-                {
-                    targets.AddRange(adjItems.Select(x => x.Vector));
-                }
-
-                if (targets.Count == 0)
-                {
-                    var closest = adjMap.Keys
-                        .OrderBy(x => items.Min(i => i.Vector.GetDistance(x)))
-                        .First();
-
-                    D($"no targets. closest: {closest}");
-
-                    if (closest.Equals(board.Players[0].Vector))
-                    {
-                        Console.WriteLine("PASS");
-                    }
-                    else
-                    {
-                        var p = FindPath(board, board.Players[0].Vector, closest);
-                        Console.WriteLine("MOVE " + string.Join(" ", p.Take(20)));
-                    }
-                }
-                else
-                {
-                    var startCell = board.Players[0].Vector;
-                    var path = new List<string>();
-                    foreach (var t in targets)
-                    {
-                        var p = FindPath(board, startCell, t);
-                        path.AddRange(p);
-                        startCell = t;
-                    }
-
-                    Console.WriteLine("MOVE " + string.Join(" ", path.Take(20))); // PUSH <id> <direction> | MOVE <direction> | PASS
-                }
+                maxScore = score;
+                NextTurns = maxTurns;
+                maxTurns = turns.ToArray();
+                //XmaxRush.D(maxTurns);
+                //XmaxRush.D(maxScore);
             }
-            else
-            {
-                var push = FindBestPush(board).ToString();
-                if (prevPush == push)
-                {
-                    samePrevPushCount++;
-                    D("same push:", samePrevPushCount);
+        }
 
-                    if (samePrevPushCount > 5 && board.Players[0].NumPlayerCards > board.Players[1].NumPlayerCards)
-                    {
-                        D("break push");
-                        push = new Push(rnd.Next(6), ((Direction)rnd.Next(4))).ToString();
-                    }
-                }
-                else
-                {
-                    samePrevPushCount = 0;
-                    prevPush = push;
-                }
+        if (deep == 0) return;
 
-                Console.WriteLine(push);
-            }
+        XmaxRush.AssertTimeout();
+
+        IEnumerable<Turn> turnsToEvaluate;
+        if (board.MoveTurn)
+        {
+            turnsToEvaluate = EnumMoves(board).ToArray();
+        }
+        else
+        {
+            turnsToEvaluate = EnumPushes(board);
+        }
+
+        foreach (var t in turnsToEvaluate)
+        {
+            var newBoard = board.Clone();
+            t.Apply(newBoard);
+            turns.Push(t);
+            SimulateMoves(newBoard, turns, deep - 1);
+            turns.Pop();
         }
     }
 
-    public static IEnumerable<string> FindPath(Board board, Vector start, Vector target)
+    private IEnumerable<Turn> EnumPushes(Board board)
     {
-        var path = new Stack<string>();
+        for (var index = 0; index < 7; index++)
+        {
+            yield return Turn.Push(index, Direction.Up);
+            yield return Turn.Push(index, Direction.Right);
+            yield return Turn.Push(index, Direction.Down);
+            yield return Turn.Push(index, Direction.Left);
+        }
+    }
+
+    private IEnumerable<Turn> EnumMoves(Board board)
+    {
+        var items = board.GetBoardQuestsItems(0).ToArray();
+
+        var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
+        var adjItems = items
+            .Where(x => adjMap.ContainsKey(x.Vector))
+            .OrderBy(x => adjMap[x.Vector]).ToArray();
+
+        var targets = new List<Vector>();
+        if (adjItems.Any())
+        {
+            var start = board.Players[0].Vector;
+            var adjPath = new List<Direction>();
+            foreach (var t in adjItems)
+            {
+                var p = FindPath(board, start, t.Vector);
+                adjPath.AddRange(p);
+                start = t.Vector;
+            }
+
+            yield return Turn.Move(adjPath.Take(20));
+
+            targets.AddRange(adjItems.Select(x => x.Vector));
+        }
+
+        targets.AddRange(adjMap.Keys.Except(targets));
+
+        var startCell = board.Players[0].Vector;
+        foreach (var t in targets)
+        {
+            var p = FindPath(board, startCell, t);
+            if (p.Count() > 0)
+                yield return Turn.Move(p.Take(20));
+        }
+
+        yield return Turn.Pass();
+    }
+
+    public static IEnumerable<Direction> FindPath(Board board, Vector start, Vector target)
+    {
+        var path = new Stack<Direction>();
         var adjMap = board.CreateAdjacentMap(start);
         var curCell = target;
         while (!curCell.Equals(start))
@@ -714,116 +923,75 @@ public class XmaxRush
                     minCell = c;
                 }
             }
-
-            path.Push(minDir.ToString().ToUpperInvariant());
+            path.Push(minDir);
             curCell = minCell;
         }
 
         return path;
     }
+}
 
-    //public static MyPath FindPath(Board board, Vector start, Vector target)
-    //{
-    //    var path = new MyPath(start, target);
-    //    FindRestOfPath(board, path);
+public class Turn
+{
+    TurnType turnType;
+    int index;
+    IEnumerable<Direction> direcitons;
+    Direction direction;
 
-    //    return path;
-    //}
-
-    private static bool FindRestOfPath(Board board, MyPath path)
+    internal static Turn Pass()
     {
-        AssertTimeout();
-
-        var p = path.Last;
-        var t = path.Target;
-
-        if (p.X == t.X && p.Y == t.Y) return true;
-
-        foreach (var dir in board.Cells[p.X, p.Y].GetDirections())
-        {
-            if (path.Add(dir))
-            {
-                p = path.Last;
-                if (board.Cells[p.X, p.Y].Has(dir.Opposite()))
-                {
-                    if (FindRestOfPath(board, path)) return true;
-                }
-                path.RemoveLast();
-            }
-        }
-
-        return false;
+        return new Turn { turnType = TurnType.Pass };
     }
 
-    private static void AssertTimeout()
+    internal static Turn Move(IEnumerable<Direction> steps)
     {
-        ticks++;
-        if (timer.ElapsedMilliseconds > 45)
+        return new Turn { turnType = TurnType.Move, direcitons = steps };
+    }
+
+    internal static Turn Push(int index, Direction direction)
+    {
+        return new Turn { turnType = TurnType.Push, index = index, direction = direction };
+    }
+
+    public void Apply(Board board)
+    {
+        board.MoveTurn = !board.MoveTurn;
+
+        if (turnType == TurnType.Move)
         {
-            Console.Error.WriteLine($"timeout {ticks}, {timer.ElapsedMilliseconds}");
-            throw new TimeoutException();
+            foreach (var d in direcitons) board.Move(0, d);
+            return;
+        }
+
+        if (turnType == TurnType.Push)
+        {
+            board.Push(index, direction);
+            return;
         }
     }
 
-    private static Push FindBestPush(Board board)
+    public override string ToString()
     {
-        var maxScore = int.MinValue;
-        Push maxPush = null;
-
-        try
+        switch (turnType)
         {
-            AssertTimeout();
-
-            for (var dir = 0; dir < 4; dir++)
-            {
-                var direction = (Direction)dir;
-                for (var index = 0; index < 7; index++)
-                {
-                    var pos = board.Players[0].Vector;
-                    var push = new Push(index, direction);
-                    board.Push(push);
-
-                    //D($"{direction} {index}");
-                    var score = CalcScore(board);
-                    if (score > maxScore)
-                    {
-                        maxScore = score;
-                        maxPush = push;
-                    }
-                    board.Push(new Push(index, direction.Opposite()));
-
-                    //Debug.Assert(pos.Equals(board.Players[0].Vector));
-                }
-            }
+            case TurnType.Pass:
+                return "PASS";
+            case TurnType.Move:
+                return "MOVE " + string.Join(" ", direcitons.Select(x => x.AsStr()));
+            case TurnType.Push:
+                return $"PUSH {index} {direction.AsStr()}";
+            default:
+                throw new ArgumentException();
         }
-        catch (TimeoutException) { }
-
-        return maxPush;
     }
 
-    private static int CalcScore(Board board)
+    internal static Turn RandomPush()
     {
-        var items = board.GetBoardQuestsItems(0).ToArray();
-
-        if (items.Length == 0)
+        return new Turn
         {
-            //D($"no board items: {items.Length}, numPlayerCards: {board.Players[0].NumPlayerCards} items: {board.Items.Length}, quests: {board.Quests.Length}");
-            return 0;
-        }
-
-        var adjMap = board.CreateAdjacentMap(board.Players[0].Vector);
-        var adjItems = items.Count(x => adjMap.ContainsKey(x.Vector));
-        var minDist = adjMap.Keys.Min(x => items.Min(j => j.Vector.GetDistance(x)));
-
-        //D($"adj items: {adjItems}, adj cells: {adjMap.Count}, min dist: {minDist}");
-
-        if (adjItems > 0) return adjItems * 1000;
-
-        return minDist * -1;
-    }
-
-    public static void D(params object[] p)
-    {
-        Console.Error.WriteLine(string.Join(" ", p.Select(x => x?.ToString())));
+            turnType = TurnType.Push,
+            direction = (Direction)(1 << XmaxRush.Rnd.Next(4)),
+            index = XmaxRush.Rnd.Next(7)
+        };
     }
 }

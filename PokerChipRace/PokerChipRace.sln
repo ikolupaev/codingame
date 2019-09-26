@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28010.2019
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PokerChipRace", "PokerChipRace\PokerChipRace.csproj", "{B8DB1BF0-84BC-4F59-8D79-10E93C4DF52B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B8DB1BF0-84BC-4F59-8D79-10E93C4DF52B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8DB1BF0-84BC-4F59-8D79-10E93C4DF52B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8DB1BF0-84BC-4F59-8D79-10E93C4DF52B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8DB1BF0-84BC-4F59-8D79-10E93C4DF52B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F124BE72-471F-4EA7-91F8-308D7AD421B9}
+	EndGlobalSection
+EndGlobal

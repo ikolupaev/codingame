@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SpyTheSpies": {
+      "commandName": "Project",
+      "commandLineArgs": "< 01.txt"
+    }
+  }
+}

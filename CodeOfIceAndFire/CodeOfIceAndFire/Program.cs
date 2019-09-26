@@ -1,13 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
 public class Player
 {
-    static Stopwatch timer = new Stopwatch();
-    static int ticks = 0;
+    static IAgent[] chain = new IAgent[]
+    {
+        new TrainToKillEnemies(),
+        new TrainToExplore(),
+        //new DefendHQ(),
+        new Explore(),
+        new AttackEnemies(),
+        new AttackHQ()
+    };
 
     static void Main(string[] args)
     {
@@ -66,6 +72,7 @@ public class Player
                 var cell = new Cell(x, y);
 
                 if (owner == 1 && buildingType == BuildingType.HQ) World.EnemyHQ = cell;
+                if (owner == 0 && buildingType == BuildingType.HQ) World.MyHQ = cell;
                 world.Buildings[owner][cell] = buildingType;
             }
 
@@ -99,15 +106,8 @@ public class Player
             D(ss);
             D("");
 
-            var moves = Solve(world).ToArray();
-            Console.WriteLine(GetMovesStr(moves));
+            DoMoves(world);
         }
-    }
-
-    public static string GetMovesStr(IEnumerable<Turn> moves)
-    {
-        if (!moves.Any()) return "WAIT";
-        else return string.Join(';', moves.Select(x => x.ToString()));
     }
 
     private static CellType GetCellType(char v)
@@ -123,59 +123,168 @@ public class Player
         }
     }
 
-    public static List<Turn> Solve(World world)
+    public static void DoMoves(World world)
     {
-        List<Turn> bestMoves = null;
-        var bestScore = double.MinValue;
+        world.TurnMoves.Clear();
 
-        ticks = 0;
-#if !DEBUG
-        timer.Restart();
-#endif
-
-        while (true)
+        foreach (var step in chain)
         {
-            ticks++;
-            var world1 = new World(world);
-            world1.MakeNextTurn(0);
-            var score = CalcScore(world1, 0, 4);
-            if (timer.ElapsedMilliseconds >= 50) break;
-            if (bestScore < score)
-            {
-                bestScore = score;
-                bestMoves = world1.TurnMoves;
-
-                var s = Player.GetMovesStr(bestMoves);
-                D($"{bestScore} {s}");
-            }
+            step.Handle(world);
         }
 
-        D($"ticks: {ticks}");
-
-        return bestMoves;
+        Console.WriteLine(GetMovesStr(world.TurnMoves));
     }
 
-    private static double CalcScore(World world, int team, int level)
+    public static string GetMovesStr(IEnumerable<Turn> moves)
     {
-        if (timer.ElapsedMilliseconds > 50) return double.MinValue;
+        if (!moves.Any()) return "WAIT";
+        else return string.Join(';', moves.Select(x => x.ToString()));
+    }
 
-        if (level == 0)
+    internal class AttackHQ : IAgent
+    {
+        public void Handle(World world)
         {
-            var score = world.CalcScore(team);
-            if (team == 1) score *= 1;
-            return score;
-        }
+            var enemyHQ = world.Buildings[1].Where(x => x.Value == BuildingType.HQ).First().Key;
+            var myUnits = world.Units[0].Values
+                .Where(x => x.CanMove)
+                .OrderByDescending(x => x.Level)
+                .ToArray();
 
-        team = 1 - team;
-        var world1 = new World(world);
-        world1.MakeNextTurn(team);
-        return CalcScore(world1, team, level - 1);
+            foreach (var unit in myUnits)
+            {
+                world.MakeMoveTurn(0, unit, enemyHQ);
+            }
+        }
     }
 
     static void D(string message)
     {
         Console.Error.WriteLine(message);
     }
+}
+
+internal class Explore : IAgent
+{
+    public void Handle(World world)
+    {
+        var units = world.Units[0].Values.Where(x => x.Level == 1 && x.CanMove).ToList();
+        var cells = world.GetValidCellsToTrain(0)[0];
+        cells.ExceptWith(world.Cells[0]);
+
+        var units1 = units.Select(x => (Unit: x, Cells: cells.Where(c => c.GetDistance(x.Cell) == 1).ToArray()))
+            .OrderBy(x => x.Cells.Count())
+            .ToArray();
+
+        var used = new HashSet<Cell>();
+        foreach (var uc in units1)
+        {
+            foreach (var c in uc.Cells)
+            {
+                if (!used.Contains(c))
+                {
+                    used.Add(c);
+                    world.MakeMoveTurn(0, uc.Unit, c);
+                    units.Remove(uc.Unit);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+
+internal class AttackEnemies : IAgent
+{
+    public void Handle(World world)
+    {
+        var units = world.Units[0].Values.Where(x => x.CanMove).ToArray();
+        var enemies = world.Units[1].Values.ToList();
+
+        foreach (var u in units)
+        {
+            var enemy = enemies.Where(x => x.Cell.IsAdustent(u.Cell)).FirstOrDefault();
+            if (enemy != null)
+            {
+                world.MakeMoveTurn(0, u, enemy.Cell);
+                enemies.Remove(enemy);
+            }
+        }
+    }
+}
+
+internal class TrainToKillEnemies : IAgent
+{
+    public void Handle(World world)
+    {
+        var cells = world.GetValidCellsToTrain(0);
+
+        cells[2].ExceptWith(cells[1]);
+        cells[2].ExceptWith(cells[0]);
+
+        cells[1].ExceptWith(cells[0]);
+
+        cells[0].IntersectWith(world.Units[1].Keys);
+
+        world.TrainAllAvailable(cells, 3);
+        world.TrainAllAvailable(cells, 2);
+        world.TrainAllAvailable(cells, 1);
+    }
+}
+internal class TrainToExplore : IAgent
+{
+    public void Handle(World world)
+    {
+        if (world.Units[0].Count() < 15)
+        {
+            var cells = world.GetValidCellsToTrain(0);
+            cells[0].ExceptWith(world.Cells[0]);
+            world.TrainAllAvailable(cells, 1);
+        }
+    }
+}
+
+internal class DefendHQ : IAgent
+{
+    public void Handle(World world)
+    {
+        var hq = world.Buildings[0].First(x => x.Value == BuildingType.HQ).Key;
+
+        var toProtect = new HashSet<Cell>(hq.GetAdustent());
+        toProtect.IntersectWith(World.AllCells);
+
+        var emptyToProtect = toProtect.Except(world.Units[0].Keys).ToArray();
+        var availableUnits = new List<Unit>();
+
+        foreach (var unit in world.Units[0].Values.Where(x => x.CanMove).ToArray())
+        {
+            if (toProtect.Contains(unit.Cell))
+            {
+                unit.CanMove = false;
+            }
+            else
+            {
+                availableUnits.Add(unit);
+            }
+        }
+
+        foreach (var item in emptyToProtect)
+        {
+            if (!availableUnits.Any()) break;
+
+            var unit = availableUnits
+                .OrderBy(x => x.Cell.GetDistance(item))
+                .FirstOrDefault();
+
+            world.MakeMoveTurn(0, unit, item);
+            availableUnits.Remove(unit);
+        }
+    }
+}
+
+internal interface IAgent
+{
+    void Handle(World world);
 }
 
 public enum CellType
@@ -263,50 +372,6 @@ public class Cell : IEquatable<Cell>
     }
 }
 
-public class FieldCell
-{
-    public Cell Cell;
-    public CellType CellType;
-
-    internal void Serialize(BinaryWriter writer)
-    {
-        Cell.Serialize(writer);
-        writer.Write((byte)CellType);
-    }
-
-    public static FieldCell Deserialize(BinaryReader reader)
-    {
-        var cell = Cell.Deserialize(reader);
-        return new FieldCell
-        {
-            Cell = cell,
-            CellType = (CellType)reader.ReadByte()
-        };
-    }
-}
-
-public class Building
-{
-    public int Team;
-    public BuildingType BuildingType;
-
-    public void Serialize(BinaryWriter writer)
-    {
-        writer.Write((byte)((((byte)BuildingType) << 1) | Team));
-    }
-
-    public static Building Deserialize(BinaryReader reader)
-    {
-        var a = reader.ReadByte();
-
-        return new Building
-        {
-            Team = (a & 1),
-            BuildingType = (BuildingType)(a >> 1)
-        };
-    }
-}
-
 public class Unit
 {
     public Cell Cell;
@@ -347,16 +412,22 @@ public class Unit
         };
     }
 
-    public int GetUpkeepCost()
+    public static int GetUpkeepCost(int level)
     {
-        if (Level == 1) return 1;
-        if (Level == 2) return 4;
+        if (level == 1) return 1;
+        if (level == 2) return 4;
         return 20;
     }
 
     public override string ToString()
     {
         return $"id:{ID} cell:{Cell} team:{Team} level:{Level}";
+    }
+
+    public bool CanMove
+    {
+        get => ID > 0;
+        set => ID = Math.Abs(ID) * (value ? 1 : -1);
     }
 }
 
@@ -386,6 +457,7 @@ public class World
     static public Random Rnd;
 
     public static Cell EnemyHQ;
+    public static Cell MyHQ;
 
     public World(World world)
     {
@@ -400,70 +472,21 @@ public class World
         }
     }
 
-    internal void MakeNextTurn(int team)
+    public void MakeMoveTurn(int team, Unit unit, Cell cell)
     {
-        var cellsToTrain = GetValidCellsToTrain(team).ToArray();
+        if (!unit.CanMove) throw new Exception("unit cannot move" + unit.ID.ToString());
 
-        if (Units[team].Values.Count(x => x.Level == 1) < 12)
-        {
-            while (Gold[team] >= 10 && CalcUpkeepCost(team) + 1 <= Income[team])
-            {
-                AddRandomTrain(team, cellsToTrain, 1);
-            }
-        }
-        else
-        {
-            while (Gold[team] >= 30 && CalcUpkeepCost(team) + 4 <= Income[team])
-            {
-                AddRandomTrain(team, cellsToTrain, 3);
-            }
+        Units[1 - team].Remove(cell);
+        Buildings[1 - team].Remove(cell);
 
-            while (Gold[team] >= 20 && CalcUpkeepCost(team) + 20 <= Income[team])
-            {
-                AddRandomTrain(team, cellsToTrain, 2);
-            }
-        }
+        Units[team].Remove(unit.Cell);
 
-        foreach (var unit in Units[team].Values.ToArray())
-        {
-            if (Rnd.NextDouble() > 0.6) continue;
+        unit.Cell = cell;
+        Units[team][unit.Cell] = unit;
+        Cells[team].Add(unit.Cell);
+        unit.CanMove = false;
 
-            if (unit.ID < 0) continue;
-
-            var cells = GetValidCellsToMove(unit).ToArray();
-            if (!cells.Any()) continue;
-
-            var cell = cells[Rnd.Next(cells.Length)];
-
-            Units[1 - team].Remove(cell);
-            Buildings[1 - team].Remove(cell);
-
-            Units[team].Remove(unit.Cell);
-
-            unit.Cell = cell;
-            Units[team][unit.Cell] = unit;
-            Cells[team].Add(unit.Cell);
-
-            TurnMoves.Add(Turn.Move(unit, cell));
-        }
-
-        Gold[team] += Cells[team].Count;
-
-        foreach (var x in Units[team].Values)
-        {
-            if (x.Level == 1) Gold[team] -= 1;
-            else if (x.Level == 2) Gold[team] -= 4;
-            else if (x.Level == 3) Gold[team] -= 20;
-        }
-    }
-
-    private void AddRandomTrain(int team, HashSet<Cell>[] cells, int level)
-    {
-        var levelCells = cells[level - 1].ToArray();
-        if (!levelCells.Any()) return;
-
-        var cell = levelCells[Rnd.Next(levelCells.Length)];
-        AddTrainMove(team, cells, level, cell);
+        TurnMoves.Add(Turn.Move(unit, cell));
     }
 
     public void AddTrainMove(int team, HashSet<Cell>[] cells, int level, Cell cell)
@@ -483,10 +506,55 @@ public class World
         {
             cells[i].Remove(cell);
         }
+
+        var protectedCells = new HashSet<Cell>();
+        foreach (var c in Buildings[1 - team])
+        {
+            if (c.Value == BuildingType.Tower)
+            {
+                protectedCells.UnionWith(c.Key.GetAdustent());
+            }
+        }
+
+        foreach (var x in cell.GetAdustent())
+        {
+            if (x.Equals(World.EnemyHQ))
+            {
+                cells[0].Add(x);
+                cells[1].Add(x);
+                cells[2].Add(x);
+                continue;
+            }
+
+            if (!AllCells.Contains(x)) continue;
+            if (Cells[team].Contains(x)) continue;
+
+            cells[2].Add(x);
+
+            if (protectedCells.Contains(x)) continue;
+            if (Buildings[1 - team].Keys.Contains(x)) continue;
+
+            if (Units[1 - team].TryGetValue(x, out Unit unit))
+            {
+                if (unit.Level < 2)
+                {
+                    cells[1].Add(x);
+                }
+            }
+        }
     }
 
     public IEnumerable<Cell> GetValidCellsToMove(Unit unit)
     {
+        var protectedCells = new HashSet<Cell>();
+        foreach (var c in Buildings[1 - unit.Team])
+        {
+            if (c.Value == BuildingType.Tower)
+            {
+                protectedCells.UnionWith(c.Key.GetAdustent());
+            }
+        }
+
         foreach (var cell in unit.Cell.GetAdustent())
         {
             if (!AllCells.Contains(cell)) continue;
@@ -494,6 +562,8 @@ public class World
             if (Units[unit.Team].ContainsKey(cell)) continue;
 
             if (unit.Level == 3) yield return cell;
+
+            if (protectedCells.Contains(cell)) continue;
 
             var opUnitExists = Units[1 - unit.Team].TryGetValue(cell, out Unit opUnit);
             if (opUnitExists && unit.Level < opUnit.Level) continue;
@@ -507,7 +577,7 @@ public class World
 
     public HashSet<Cell>[] GetValidCellsToTrain(int team)
     {
-        var cells = new HashSet<Cell>();
+        var cells = new HashSet<Cell>(Cells[team]);
         foreach (var item in Cells[team])
         {
             cells.UnionWith(item.GetAdustent());
@@ -515,16 +585,26 @@ public class World
 
         var cellsToTrain = new HashSet<Cell>(AllCells);
         cellsToTrain.IntersectWith(cells);
-        cellsToTrain.ExceptWith(Cells[team]);
         cellsToTrain.ExceptWith(Units[team].Keys);
         cellsToTrain.ExceptWith(Buildings[team].Keys);
 
         var ret = new[] { new HashSet<Cell>(), new HashSet<Cell>(), new HashSet<Cell>() };
 
+        var protectedCells = new HashSet<Cell>();
+        foreach (var c in Buildings[1])
+        {
+            if (c.Value == BuildingType.Tower)
+            {
+                protectedCells.UnionWith(c.Key.GetAdustent());
+            }
+        }
+
         var enemyTeam = 1 - team;
         foreach (var x in cellsToTrain)
         {
             ret[2].Add(x);
+
+            if (protectedCells.Contains(x)) continue;
 
             if (Units[enemyTeam].TryGetValue(x, out Unit unit))
             {
@@ -559,14 +639,14 @@ public class World
             + (Units[0].ContainsKey(World.EnemyHQ) ? 1000 : 0);
     }
 
-    private int CalcUnitsPower(int team)
+    public int CalcUnitsPower(int team)
     {
         return Units[team].Values.Sum(x => x.Level * 10);
     }
 
-    private int CalcUpkeepCost(int team)
+    public int CalcUpkeepCost(int team)
     {
-        return Units[team].Values.Sum(x => x.GetUpkeepCost());
+        return Units[team].Values.Sum(x => Unit.GetUpkeepCost(x.Level));
     }
 
     public string Serialize()
@@ -666,7 +746,19 @@ public class World
                 }
 
                 World.EnemyHQ = Buildings[1].First(x => x.Value == BuildingType.HQ).Key;
+                World.MyHQ = Buildings[0].First(x => x.Value == BuildingType.HQ).Key;
             }
+        }
+    }
+
+    public void TrainAllAvailable(HashSet<Cell>[] cells, int level)
+    {
+        while (cells[level - 1].Any() && Gold[0] >= level * 10 && Income[0] >= CalcUpkeepCost(0) + Unit.GetUpkeepCost(level))
+        {
+            var cc = cells[level - 1].OrderBy(x => x.GetDistance(World.MyHQ)).ToArray();
+            var c = cc[World.Rnd.Next(cc.Length)];
+            //var c = cc.First();
+            AddTrainMove(0, cells, level, c);
         }
     }
 }
@@ -684,7 +776,6 @@ public class Turn
     public TurnType TurnType;
     public Unit Unit;
     public Cell Cell;
-    public Building Building;
 
     public static Turn Train(Cell cell, int team, int level)
     {
@@ -719,7 +810,7 @@ public class Turn
         switch (TurnType)
         {
             case TurnType.MOVE:
-                return $"MOVE {Unit.ID} {Cell}";
+                return $"MOVE {Math.Abs(Unit.ID)} {Cell}";
             case TurnType.TRAIN:
                 return $"TRAIN {Unit.Level} {Cell}";
             case TurnType.WAIT:

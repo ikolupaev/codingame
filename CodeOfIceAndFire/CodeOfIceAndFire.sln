@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28803.352
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodeOfIceAndFire", "CodeOfIceAndFire\CodeOfIceAndFire.csproj", "{4467E2AC-3B94-4559-A117-488CAF90B444}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeOfIceAndFire.Tests", "CodeOfIceAndFire.Tests\CodeOfIceAndFire.Tests.csproj", "{DAA49EC3-E707-4D23-BF91-9B3A2BC7608F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4467E2AC-3B94-4559-A117-488CAF90B444}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4467E2AC-3B94-4559-A117-488CAF90B444}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4467E2AC-3B94-4559-A117-488CAF90B444}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4467E2AC-3B94-4559-A117-488CAF90B444}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DAA49EC3-E707-4D23-BF91-9B3A2BC7608F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DAA49EC3-E707-4D23-BF91-9B3A2BC7608F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DAA49EC3-E707-4D23-BF91-9B3A2BC7608F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DAA49EC3-E707-4D23-BF91-9B3A2BC7608F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3139737A-38A5-405B-BBE7-2A54AFA15C43}
+	EndGlobalSection
+EndGlobal
